@@ -1,0 +1,223 @@
+################################################################
+##
+## diverse functions for analysing gene expression data
+##
+## demo
+##	mva.util.demo()
+## loading:
+##      setwd(dir.util)
+## 	source("lib_chip_analysis.R")
+library(stats)
+
+source('palette.R')
+
+################################################################
+#
+# perform k-means clustering 
+# and plot resulting profiles by cluster
+#
+
+kmean.profiles	<- function(data,
+				k	= 19,
+				iter	= 200,
+				pca	= T,
+				return.type	= NA) {
+
+	################ initialize parameters
+	palette.rep 	<- rep(palette,length.out=k)
+
+	plots	<- k+1 	### one for the 2D viz
+	row.nb	<- max(1,floor(sqrt(plots)))
+	col.nb <- max(1,ceiling(plots/row.nb))
+	par(mfrow=c(row.nb,col.nb))
+
+	nrow 	<- dim(data)[1]
+	ncol 	<- dim(data)[2]
+
+	################ k-mean clustering
+	if (pca) {
+		#### prior transformation in principal compenent space 
+		pcomp		<- prcomp(data)
+		km	<- kmeans(pcomp$x,k,iter)
+	
+		plot(pcomp$x[,"PC1"],pcomp$x[,"PC2"],
+			col	= palette.rep[km$cluster],
+			xlab	= "PC1", 
+			ylab	= "PC2",
+			panel.first	= c(grid(col=1),
+						abline(h=0,col=1),
+						abline(v=0,col=1))
+			)
+	} else {
+		km	<- kmeans(data,k,iter)
+		### select first and last columns for assigning coordinates
+		plot(data[,1],
+			data[,ncol],
+			xlab	= names(data)[1],
+			ylab	= names(data)[ncol],
+			col	= palette.rep[km$cluster],
+			panel.first	= c(	grid(col=1),
+						abline(h=0,col=1),
+						abline(v=0,col=1))
+			)
+	}
+
+	################ Profile plotting
+	for (cl.nb in 1:k) {
+		cl 	<- data[km$cluster==cl.nb,]
+		x	<- 1:(dim(cl)[2])
+		plot(x,cl[1,],
+			ylim	= c(min(data,na.rm=T),max(data,na.rm=T)),
+			type	= "l",
+			xlab	= "column",
+			ylab	= "value",
+			col	= palette.rep[cl.nb],
+			panel.first	= c(	grid(col=1),
+						abline(h=0,col=1),
+						abline(v=0,col=1)
+						),
+			font.axis=2,
+			font.lab=2
+			)
+		for (row in 2:dim(cl)[1]) {
+			lines(x,cl[row,],
+				type	= "l",
+				col	= palette.rep[cl.nb])
+		}
+		legend(min(x,na.rm=T),max(data,na.rm=T),paste("cl",cl.nb,"(",length(cl[,1]),"el)"), bty	= "n",cex=1.5)
+	}	
+	par(mfrow=c(1,1))
+
+	if (return.type == "pca") {
+		return(pcomp)
+	} else if (return.type == "kmeans") {
+		return(km)
+	} else {
+		return(NULL)
+	}
+}
+
+################################################################
+#
+# perform SVD and plot data according to the 2 first dimensions
+#
+
+plot.svd	<- function(data,
+				col=NA) {
+	nrow 	<- dim(data)[1]
+	ncol 	<- dim(data)[2]
+	if (is.na(col)) {
+		col 	<- rep("#ff0088",nrow)
+	} 
+	c	<-  cor(t(data))
+	s	<-  svd(as.matrix(c))
+		
+	plot(s$u[,1],s$u[,2],
+		col	= col,
+		type	= "p",
+		xlab	= "SVD1",
+		ylab	= "SVD2",
+		pch	= 19,
+		panel.first	= c(	grid(col=1),
+					abline(h=0,col=1),
+					abline(v=0,col=1))
+		)
+
+}
+
+
+################################################################
+#
+# Profile drawing
+#
+plot.profiles <- function(data,			# data frame
+                          selection=NA,		# a vector with selected row names from data
+                          main="profiles",	# main title for the plot
+                          plot.legend = T,        # plot the legend
+			  legend.labels = NA,
+                          ylim=NA,
+			  xlab="variable",
+			  ylab="value",
+			  lwd=1,
+                          colpal=palette		# a vector of colors
+                          ) {
+  verbose("Plot profiles")
+  verbose(dim(data),3)
+  verbose("Selection", 3)  
+  verbose(length(selection), 3)
+  verbose(selection, 4)  
+
+  data <- as.data.frame(data)
+
+  if (is.na(selection)) {
+    profiles <- data
+  } else {
+    if (length(selection) == 0) {
+      return
+    } 
+    profiles 	<- data[selection,]
+  }
+  p <- dim(profiles)[2]
+  n 	<- dim(profiles)[1]
+
+  if (is.na(ylim)) {
+    ylim <- c(min(data,na.rm=T),max(data,na.rm=T))
+  }
+  if (plot.legend) {
+    xlim <- c(1,p*1.25)
+  } else {
+    xlim <- c(1,p)
+  }
+
+  palette.rep 	<- rep(colpal,length.out=n)
+  plot(1:p,profiles[1,],
+       main=main,
+       xlim	= xlim,
+       ylim	= ylim,
+       type	= "l",
+       xlab	= xlab,
+       ylab	= ylab,
+       lwd	= lwd,
+       col	= palette.rep[1],
+       panel.first	= c(	grid(col=1),
+         abline(h=0,col=1),
+         abline(v=0,col=1)
+         ),
+       font.axis=2,
+       font.lab=2
+       )
+  for (row in 2:n) {
+    lines(1:p,profiles[row,],
+          type	= "l",
+	  lwd=lwd,
+          col	= palette.rep[row])
+  }
+  ## add a legend to the plot
+  if (plot.legend) {
+    if (is.na(legend.labels)) {
+      legend.labels <- row.names(profiles)
+    }
+    if (length(legend.labels) > 25) {
+      legend.labels <- legend.labels[1:25]
+    }
+    legend(p*1.05,max(data),legend.labels,col=palette.rep,lwd=2,cex=0.7)
+  }
+}
+
+
+################################################################
+##
+## Demo
+##
+
+mva.util.demo <- function(	nrow	= 250,
+                          ncol	= 7,
+                          k	= 11,
+                          iter	= 200
+                          ) {
+  palette.rep	<- rep(palette,length.out=k)
+  data	<- data.frame(matrix(rnorm(nrow*ncol),ncol=ncol))
+  km 	<- kmean.profiles(data,k,iter,return="kmeans")
+  plot.svd(data,col=palette.rep[km$cluster])
+
+}

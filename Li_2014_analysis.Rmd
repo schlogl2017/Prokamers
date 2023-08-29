@@ -1,0 +1,453 @@
+---
+title: 'Analysis of RNA-seq data from Li et al. (2014): psoriasis'
+author: 'Jacques van Helden'
+date: 'Last update: `r Sys.Date()`'
+output:
+  html_document:
+    fig_caption: yes
+    highlight: zenburn
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+  pdf_document:
+    fig_caption: yes
+    highlight: zenburn
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  word_document: default
+---
+
+```{r knitr setup, include=FALSE,  eval=TRUE, echo=FALSE, warning=FALSE}
+################################################################
+## Global configuration to generate the documents from this Rmd file
+library(knitr)
+knitr::opts_chunk$set(echo=FALSE, eval=TRUE, cache=FALSE, message=FALSE, warning=FALSE, comment = "", fig.width = 7, fig.height = 5, fig.path = "figures/")
+```
+
+```{r required_libraries}
+################################################################
+## Load required libraries, and install them if necessary
+bioconductor.required <- c("DESeq2", "edgeR")
+for (pack in bioconductor.required) {
+  message("Loading library: ", pack)
+  if (!require(pack, character.only = TRUE)) {
+    warning(pack, " is required for this document. Installing. ")
+    source("https://bioconductor.org/biocLite.R")
+    biocLite("DESeq2")
+  }
+}
+
+if (!require(stats4bioinfo)) {
+  stop("Required R package stats4bioinfo is not installed on this machine.")
+}
+
+## Parallelization of DESeq2 computations
+library("BiocParallel")
+```
+
+
+```{r configuration}
+################################################################
+## Main directory. Should be adapted to local configuration
+# dir.main <- "~/statistics_bioinformatics/"
+dir.main <- getwd()
+if (!file.exists(dir.main)) {
+  stop("Main directory does not exist: ", dir.main, ". Please check the dir.main variable.")
+}
+setwd(dir.main)
+
+## Specify the data directory
+dir.data <- file.path(dir.main, '../../../data/NGS/Li_2014_psoriasis/RESULTS/COUNT_MATRIX')
+# list.files(dir.data)
+
+count.file <- file.path(dir.data, "counts_all_sample_header.txt.gz")
+
+## Parameters
+quick.mode <- TRUE
+run.param <- list(
+  verbosity = 1,
+  parallel = TRUE, ## Passed to DESeq2 for paralellization of computing-intensive tasks
+  cores = 4, ## Number of cores for parallel computing, should be adapted to the current computer
+  epsilon= 0.01,
+  alpha=0.01, ## Significance threshold (on adjusted p-value)
+  FC.threshold = 2, ## Threshold on fold-change (will be applied in both direction)
+  lambda=0.5, ## lambda parameter to estimate proportions of features under H0/H1 according to Storey and Tibshirani
+  compute.all = !quick.mode, ## generally not required if reload.previous.session is true
+  save.results=!quick.mode,
+  reload.previous.session = quick.mode, ## Reload memory image from previous session (gain time)
+  dir.main = dir.main,
+  dir.data = dir.data,
+  count.file = count.file,
+  save.image.file=file.path(dir.data, "Li_2014_psoriasis.RData")
+)
+
+register(MulticoreParam(run.param$cores))
+
+## Print running parameters
+kable(data.frame(t(data.frame(run.param))),col.names = "Parameter value")
+
+```
+
+
+```{r reload_previous_results}
+########
+## Reload previous session of specified (to gain time)
+if (run.param$reload.previous.session) {
+  ## Save current run parameters to avoid overwriting them by parameters from previous session
+  run.param.back <- run.param
+
+  ## Reload previously saved memory image
+  message("Reloading previsouly saved memory image\n\t", run.param$save.image.file)
+  system.time(load(run.param$save.image.file))
+
+
+  run.param <- run.param.back
+  rm(run.param.back)
+}
+
+```
+
+
+****************************************************************
+# Introduction
+
+
+
+
+****************************************************************
+# Data sources
+
+
+This analysis is based on the RNA-seq transcriptome analysis of psoriasis versus normal epidermal tissue published by Li et al (2014) [GEO series GSE54456](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE54456). This study includes a large number of replicates, which provides a good basis for an analysis of the robustness of the differential analysis to sampling effects.
+
+Since the GEO series [GSE54456](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE54456) only provides RPKM, which are not suitable for DESeq2 analysis (requires raw counts), raw reads were imported from the SRA archive and pre-processed by Denis Puthier to obtain a table of raw counts. 
+
+We also analyzed the RPKM for the sake of comparison. For this, we applied the same test as Li et al (Wilkoxon rank-sum test) on the RPKM and on the median-wise normalized counts, respectively.
+
+
+
+## Data loading
+
+```{r load_raw_counts}
+
+################################################################
+## Load the raw count matrix (one row per gene, one column per sample).
+
+
+## Load the count matrix
+raw.counts <- read.delim(count.file, header=TRUE, row.names=1)
+# View(raw.counts)
+# dim(raw.counts)
+# names(raw.counts)
+
+sample.descriptions <- data.frame(t(sapply(strsplit(colnames(raw.counts), perl=TRUE, split="_+"),c)))
+sample.descriptions$file <- colnames(raw.counts)
+names(sample.descriptions) <- c("GSM_ID", "sample_id","condition", "tissue", "SRX_ID", "suffix", "file")
+
+## Assign a replicate number
+sample.descriptions$replicate <- NA
+for (condition in sample.descriptions$condition) {
+  sample.descriptions[sample.descriptions$condition==condition, "replicate"] <- order(sample.descriptions[sample.descriptions$condition==condition, "GSM_ID"])
+}
+sample.descriptions$label <- paste(sep="_", sample.descriptions$condition, sprintf("%02s", sample.descriptions$replicate))
+sample.descriptions <- sample.descriptions[, c("label", "condition", "sample_id", "replicate", "GSM_ID", "SRX_ID")]
+# View(sample.descriptions)
+# head(sample.descriptions)
+# sample.descriptions[order(sample.descriptions$label),]
+# table(sample.descriptions$condition)
+
+conditions <- as.vector(unique(sample.descriptions$condition))
+
+## Use GSM ID for both sample descriptions and count header
+row.names(sample.descriptions) <- sample.descriptions$label
+names(raw.counts) <- sample.descriptions$label
+# head(sample.descriptions)
+# head(raw.counts)
+
+## Add epsilon to zero values and compute log2- and log10-transformed counts
+raw.counts.epsilon <- raw.counts
+raw.counts.epsilon[raw.counts ==0] <- run.param$epsilon
+raw.counts.log2 <- log2(raw.counts.epsilon)
+raw.counts.log10 <- log10(raw.counts.epsilon)
+```
+
+
+****************************************************************
+## Negative control: gene-wise permuted dataset
+
+As a negative control, we generate fake expression matrix by permuting the counts of each gene (row) between the different samples (columns). Since the permutation encompasses the replicates across all conditions, each permuted group should consist of a mixture between the original groups, so that differential analysis should return no positive gene. 
+
+```{r gene-wise_permutation}
+  ## Perform row-wise (gene-wise) permutation of the values
+  rowperm.raw.counts <- rowwiseSample(x=raw.counts, columns = ncol(raw.counts), replace = FALSE)
+
+```
+
+
+## Read count statistics
+
+
+```{r log10_count_distrib, fig.cap="**Distribution of log10(counts) per gene**. Left: histogram of read counts per gene (all genes x all samples). Right: empirical cumulative distribution function (eCDF). ", fig.width=10, fig.height=5}
+par(mfrow=c(1,2))
+
+## histogram
+raw.counts.log10.floor <- log10(run.param$epsilon)
+raw.counts.log10.ceil <- ceiling(max(unlist(raw.counts.log10)))
+h <- hist(unlist(raw.counts.log10), breaks=seq(from=raw.counts.log10.floor, to=raw.counts.log10.ceil, by=0.1), main="Distribution of counts per gene (all samples)", xlab="log10(counts)", ylab="Number of genes x samples", col="#FFDDBB")
+
+## Empirical cumulative density function
+plot(ecdf(unlist(raw.counts.log10)), main="Empirical CDF of counts per gene", xlab="log10(counts)", ylab="Proportion of genes", col="brown")
+abline(v=seq(from=raw.counts.log10.floor, to=raw.counts.log10.ceil, by=0.5), col="#BBBBBB")
+abline(h=seq(0,1,by=0.1), col="#BBBBBB")
+
+## Histogram and eCDF for the median counts per gene. 
+## Not so interesting, I suppress it
+# h <- hist(apply(raw.counts.log10, 1, median), breaks=seq(from=raw.counts.log10.floor, to=raw.counts.log10.ceil, by=0.1), main="Median log10(count) per gene", xlab="Median log10(count) per gene", ylab="Number of genes", col="#FFDDBB")
+# 
+# plot(ecdf(unlist(raw.counts.log10)), main="Empirical CDF of median log10(count) per gene", xlab="Median log10(count) per gene", ylab="Proportion of genes", col="brown")
+# abline(v=seq(from=raw.counts.log10.floor, to=raw.counts.log10.ceil, by=0.5), col="#BBBBBB")
+# abline(h=seq(0,1,by=0.1), col="#BBBBBB")
+
+par(mfrow=c(1,2))
+```
+
+
+****************************************************************
+# Detection of differentially expressed genes
+
+## DEG detection with DESeq2
+
+
+```{r run_DESeq2}
+################################################################
+## Detection of differentially expressed genes with DESeq2
+if (run.param$compute.all) {
+  
+  ## Construct a DESeqDataSet
+  DESeq2.dds <- DESeqDataSetFromMatrix(countData = raw.counts,
+                                colData = sample.descriptions,
+                                design = ~ condition)
+  DESeq2.dds$condition <- relevel(DESeq2.dds$condition, ref="normal")
+  print(DESeq2.dds)
+  # View(counts(DESeq2.dds))
+  
+  
+  ## Prefiltering: suppress genes detected in less than a given number of samples
+  if (sum(rowSums(counts(DESeq2.dds)) < 1) > 0) {
+    warning("Suppressing ", sum(rowSums(counts(DESeq2.dds)) < 1), " undetected genes (rowsum(counts)<1)")
+    DESeq2.dds <- DESeq2.dds[ rowSums(counts(DESeq2.dds)) > 1, ]
+  }
+  
+  
+  ## Detection of differentially expressed genes with DESeq2
+  system.time(DESeq2.dds <- DESeq(DESeq2.dds, parallel = run.param$parallel))
+  system.time(DESeq2.res <- results(DESeq2.dds, addMLE=TRUE, parallel = run.param$parallel)) ## Extract a table with one row per gene and one column per statistics
+
+  ## I think that the sorting is confusing because the order does not correspond to DESeq2.dds anymore
+  #  DESeq2.res <- DESeq2.res[order(DESeq2.res$padj),] ## Sort result table by adjusted p-value
+  
+  ## Extract a data frame from the DESeq2 result object, for convenience
+  DESeq2.table <- data.frame(DESeq2.res)
+  # names(DESeq2.table)
+  # dim(DESeq2.table)
+  # head(as.data.frame(DESeq2.table))
+  
+  ## Define colors according to significance
+  DESeq2.table$color <- "#DDBBFF"
+  DESeq2.table[DESeq2.table$padj < run.param$alpha, "color"] <- "#BB0000"
+  # table(DESeq2.table$color)
+}
+
+```
+
+
+```{r DESeq2_with_gene-wise_permuted_values}
+################################################################
+## Analyse a negative control obtained by permuting the sample values (columns-) independently for each gene (row).
+if (run.param$compute.all) {
+  
+  ## Construct a DESeqDataSet
+  rowperm.DESeq2.dds <- DESeqDataSetFromMatrix(countData = rowperm.raw.counts,
+                                colData = sample.descriptions,
+                                design = ~ condition)
+  rowperm.DESeq2.dds$condition <- relevel(DESeq2.dds$condition, ref="normal")
+  print(rowperm.DESeq2.dds)
+  dim(rowperm.DESeq2.dds)
+
+  
+  ## Prefiltering: suppress genes detected in less than a given number of samples
+  if (sum(rowSums(counts(rowperm.DESeq2.dds)) < 1) > 0) {
+    warning("Suppressing ", sum(rowSums(counts(rowperm.DESeq2.dds)) < 1), " undetected genes (rowsum(counts)<1)")
+    rowperm.DESeq2.dds <- rowperm.DESeq2.dds[ rowSums(counts(rowperm.DESeq2.dds)) > 1, ]
+    dim(rowperm.DESeq2.dds)
+  }
+  
+  
+  ## Detection of differentially expressed genes with DESeq2
+  system.time(rowperm.DESeq2.dds <- DESeq(rowperm.DESeq2.dds, parallel = run.param$parallel))
+  system.time(rowperm.DESeq2.res <- results(rowperm.DESeq2.dds, addMLE=TRUE, parallel = run.param$parallel)) ## Extract a table with one row per gene and one column per statistics
+
+  ## Sorting the result is not a good idea because we loose consistency with the DESeq2.dds object  
+  # rowperm.DESeq2.res <- rowperm.DESeq2.res[order(rowperm.DESeq2.res$padj),] ## Sort result table by adjusted p-value
+  
+  ## Extract a data fraom from DESeq2 result, for convenience
+  rowperm.DESeq2.table <- data.frame(rowperm.DESeq2.res)
+  # names(rowperm.DESeq2.table)
+  # dim(rowperm.DESeq2.table)
+  # head(as.data.frame(rowperm.DESeq2.table))
+  # plot(rowperm.DESeq2.res$lfcMLE, rowperm.DESeq2.res$lfcSE) ## Compare log fold change with/without shrinkage
+  
+  ## Define colors according to significance
+  rowperm.DESeq2.table$color <- "#DDBBFF"
+  rowperm.DESeq2.table[rowperm.DESeq2.table$padj < run.param$alpha, "color"] <- "#BB0000"
+  # table(rowperm.DESeq2.table$color)
+}
+
+```
+
+
+
+## Dagnostic plots
+
+For each analysis (case versus control, gene-wise permuted data) we generate a series of diagnostic plots that allow us to grasp the results and compare the observed effect (case versus control) with the random expectation (gene-wise permuted values).
+
+1. **log2FC plots**. DESeq2 relies on a shrinkage strategy (Love et al., 2014) to estimate the variance of each gene, which impacts the log2FC. The comparison between shrinkage-based and "unshrinked" log2FC gives an ida of the impact of the shrinkage. 
+
+2. **P-value histograms**. Under the null hypothesis (no differential expression at all), the p-value distribution should be uniform (by definition of the p-value). P-value histograms of gene-wise permuted values should thus be flat. In contrast, with real gene count data sets, the histogram should present an enrichment of low p-values, corresponding to the supposedly differentially expressed genes. Moreover, Storey and Tibshrani's method enables to  estimate  the respective numbers of genes under null ($m_0$) or alternative ($m_1$) hypothesis, as well as the proportion of null features ($\pi_0$), by comparing the left and right sides of a p-value histogram.
+
+3. **Volcano plots** provide a simultaneous view of the effect size (log2 fold change, in abcsissa) and its significance ($-log_{10}(FC)$, in ordinate). These two criteria are both relevant to detect relevant genes for differential expression. 
+
+4. **MA plots** indicate the relationship between the level of regulation ($log(FC)$, in ordinate) and the mean level of expression (mean of the log(counts), in abcsissa).
+
+```{r ma_plots, fig.width=10, fig.height=16, fig.cap="**Detection of differentially expressed genes (DEG) with DESeq2.** **Left panels:** psoriasis versus normal. **Right panels:** gene-wise permuted values (negative control). **(a-b):** log2FC with and without shrinkage. Significant genes are marked in brown. **(c-d):** P-value histograms, and estimates of the number of genes under $H_0$ ($m_0$), $H_1$ ($m_1$), and the proportion of genes under $H_0$ ($pi_0$). **(e-f):** Volcano plots. Genes called positive are shown in brown and violet. Violet triangles denote genes whose significance exceeds the Y scale. **(g-h):** MA plots with unshrinked logFC. "}
+
+panel.nb <- 0
+par(mfrow=c(4,2))
+
+################################################################
+## Compare log2 fold changes with / without shrinkage
+
+## Compare log fold change with/without shrinkage
+plot(DESeq2.res$lfcMLE, DESeq2.res$log2FoldChange, xlab="unshrinked log2FC", ylab="log2FC with shrinkage", panel.first=grid(col="#BBBBBB", lty="solid"), col=DESeq2.table$color, main="DESeq2 log2FC")
+abline(h=0)
+abline(v=0)
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+
+## Compare log fold change with/without shrinkage
+plot(rowperm.DESeq2.res$lfcMLE, rowperm.DESeq2.res$log2FoldChange, xlab="unshrinked log2FC", ylab="log2FC with shrinkage", panel.first=grid(col="#BBBBBB", lty="solid"), col=rowperm.DESeq2.table$color, main="DESeq2 log2FC, gene-wise permuted values") 
+abline(h=0)
+abline(v=0)
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+################################################################
+## P-value distributions
+
+## DESeq2 P-value distributions for the real dataset
+DESeq2.multicor <- multipleTestingCorrections(DESeq2.table$pvalue, lambda=run.param$lambda)
+PlotPvalDistrib.MultiTestTable(
+  DESeq2.multicor,
+  main="DESeq2 p-values",
+  col="#FFEEDD", legend.corner="topright",
+  draw.lambda = "none", draw.m0.line = TRUE, draw.mean.line = FALSE)
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+## DESeq2 P-value distirbution for gene-wise permuted values
+rowperm.DESeq2.multicor <- multipleTestingCorrections(rowperm.DESeq2.table$pvalue, lambda=run.param$lambda)
+PlotPvalDistrib.MultiTestTable(
+  rowperm.DESeq2.multicor,
+  main="DESeq2 p-values, gene-wise permuted values",
+  col="#FFEEDD", legend.corner="bottomright",
+  draw.lambda = "none", draw.m0.line = TRUE, draw.mean.line = FALSE)
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+################################################################
+## Volcano plots
+
+## Volcano plot for the real values
+stats4bioinfo::VolcanoPlot.MultiTestTable(
+  multitest.table = DESeq2.table, 
+  effect.size.col = "log2FoldChange", 
+  control.type = "padj", 
+  alpha=run.param$alpha, 
+  effect.threshold=log2(run.param$FC.threshold), 
+  col.positive="brown",
+  main="DESeq2 Volcano", 
+  ylim = c(-1, 100), 
+  legend.corner = "bottomright")
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+## Volcano plot for the row-wise permuted values
+stats4bioinfo::VolcanoPlot.MultiTestTable(
+  multitest.table = rowperm.DESeq2.table, 
+  effect.size.col = "log2FoldChange", 
+  control.type = "padj", 
+  alpha=run.param$alpha, 
+  effect.threshold=log2(run.param$FC.threshold), 
+  col.positive="brown",
+  main="DESeq2  Volcano, gene-wise permuted values",
+  ylim = c(-1, 100), 
+  legend.corner = "topright")
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+
+################################################################
+## MA plots
+
+## MA plot for the real values
+DESeq2::plotMA(DESeq2.res, MLE=TRUE, main="DESeq2 MA plot", ylab="Unshrinked logFC", xlab="Mean log(counts)", alpha=run.param$alpha, ylim=c(-4,4), panel.first=grid(col="#BBBBBB", lty="solid"), colSig="brown")
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+
+## MA plot for gene-wise permuted values
+DESeq2::plotMA(rowperm.DESeq2.res, MLE=TRUE, main="DESeq2 MA plot, gene-wise permuted values", ylab="Unshrinked logFC", xlab="Mean log(counts)", alpha=run.param$alpha, ylim=c(-4,4), panel.first=grid(col="#BBBBBB", lty="solid"), colSig="brown")
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+
+par(mfrow=c(1,1))
+
+```
+
+
+## Wilcoxon rank-sum test
+
+```{r}
+## Load RPKM table from Li et al., downloaded from GEO
+rpkm.file <- file.path(dir.main, "../../../data/NGS/Li_2014_psoriasis/DATA/GSE54456_RPKM_samples.txt.gz")
+rpkm <- read.delim(rpkm.file, row.names = 1)
+system.time(rpkm.wilcox <- wilcoxTestPerRow(x=rpkm, cl=sample.descriptions$condition, test.group="Psoriasis"))
+
+## DESeq2 P-value distributions for the real dataset
+rpkm.wilcox.multicor <- multipleTestingCorrections(rpkm.wilcox$table$p.value, lambda=run.param$lambda)
+PlotPvalDistrib.MultiTestTable(
+  rpkm.wilcox.multicor,
+  main="Wilcoxon rank-sum p-values",
+  col="#FFEEDD", legend.corner="topright",
+  draw.lambda = "none", draw.m0.line = TRUE, draw.mean.line = FALSE)
+panel.nb <- panel.nb+1; mtext(paste(sep="", "(", letters[panel.nb], ")"), side = 3, line = 1, adj = 0, cex = 1.1)
+
+```
+
+
+****************************************************************
+# References
+
+1. Li,B., Tsoi,L.C., Swindell,W.R., Gudjonsson,J.E., Tejasvi,T., Johnston,A., Ding,J., Stuart,P.E., Xing,X., Kochkodan,J.J., et al. (2014) Transcriptome analysis of psoriasis in a large case-control sample: RNA-seq provides insights into disease mechanisms. J. Invest. Dermatol., 134, 1828–1838.
+
+```{r save_image}
+########################################################################
+## Save an image of memory in order to reload the whole analysis without re-computing everything
+if (run.param$save.results) {
+  message.verbose(paste("Working directory", getwd()), 1)
+  message.verbose(paste("Saving memory image", run.param$save.image.file), 1)
+  system.time(save.image(file=run.param$save.image.file, compress=TRUE))
+  message.verbose("Job done")
+} else {
+  message.verbose("Skipping memory image saving")
+}
+
+```
+
