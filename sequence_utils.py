@@ -11,14 +11,12 @@ from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from collections import defaultdict, Counter, deque
 import itertools
 from itertools import product
 from toolz import groupby
 from more_itertools import windowed
 from Bio import SeqIO
 import alphabet
-from fasta_parser import fasta_item_counter, parse_fasta
 from fasta_parser import parse_fasta
 # from markov_models import get_expected_higher_markov, get_variance, get_standard_deviation, z_scores, \
 #     get_p_values, get_e_values, gets_selected_kmers
@@ -67,10 +65,10 @@ def get_chunks(sequence, window_size, step=1):
         chunk = sequence[i:i + window_size]
         # assure the the chunk is the expected size
         assert len(chunk) == window_size
-        yield chunk, end
+        yield chunk, i, end
 
 
-def get_gc_content(sequence):
+def get_gc_content(sequence, as_percent=False):
     """
     Finction to calculate the the gc content of a sequence.
     
@@ -83,18 +81,16 @@ def get_gc_content(sequence):
         gc - a float representing the of (g + c) content of a sequence.
     
     """
-    # get the sequence length and 
-    # make all the sequence characters upper case
     seq_len = len(sequence)
     if not sequence:
         return 0.0
     # count all gs and cs
-    c = sequence.count('C')
-    g = sequence.count('G')
-    # returns the gc content from a sequence
-    # sum up the |Gs and Cs counts and divide 
-    # by the sequence length
-    return round((c + g) / seq_len, 4)
+    c_plus_g = sequence.count('C') + sequence.count('G')
+    # and divide by the sequence length
+    gc = round(c_plus_g / seq_len, 4)
+    if as_percent:
+         return gc * 100
+    return gc
 
 
 def gc_content(sequence):
@@ -441,6 +437,36 @@ def get_minimum_skew(sequence):
     min_skew = []
     # calculates the sequence gc skew
     skew = get_sequence_skew(sequence)
+    # get the minimized skew values
+    m_skew = min(skew)
+    # iterates to the length of the sequence
+    # to get the index positions
+    for idx in range(len(sequence) + 1):
+        # if the position i has the same value 
+        # as the minimum appende to the array
+        if skew[idx] == m_skew:
+            min_skew.append(idx)
+    return min_skew
+
+
+def get_min_skew(seq_skew):
+    """
+    Calculates a position in a sequence minimizing the skew.
+    
+    Inputs:
+        seq_skew - a list representing the sequence skew.    
+    
+    Outputs:
+    
+        min_skew - an array-like object that represents the pistion 
+                   where the GC skew is the minimized in the sequence.    
+    
+    Example:
+    get_minimum_skew('ACAACGTAGCAGTAGCAGTAGT')
+    [5]
+    """
+    min_skew = []
+    skew = seq_skew
     # get the minimized skew values
     m_skew = min(skew)
     # iterates to the length of the sequence
@@ -969,7 +995,7 @@ def get_mers(sequence, kmin, kmax):
         return (''.join(mers) for mers in windowed(sequence, k))
 
 
-def counts(sequence):
+def counts(sequences):
     """ 
     Find number of occurrences of each value in sequence.
     
@@ -992,7 +1018,7 @@ def counts(sequence):
     # initialize the countainer
     count = defaultdict(int)
     # iterates through sequence elements
-    for item in sequence:
+    for item in sequences:
         # if element not in counts add 0
         # else add 1
         count[item] = count.get(item, 0) + 1
@@ -2034,3 +2060,107 @@ def palindrome_middle_check(palindrome_list, check_middle=1):
             mid = pal[half-1:half+2]
             print('m', mid)
     return grouped
+
+
+def get_sequence_chunks(sequence, window, step):
+    """It yields the sequence chunks of length window with overlapping lengths
+    of length step. If window = step, yields no-overlapping fragments.
+
+    Inputs:
+        sequence - a string representing a DNA sequence.
+        step - a integer representing the lengths of overlapping bases.
+        
+    Outputs:
+        subseq - a string representing a slice of the sequence with or without
+                 overlapping characters.
+    """
+    sequence = sequence.upper()
+    # iterates to the overlap region
+    for start in range(0, len(sequence) - window + 1, step):
+        end = start + window
+        # creates the substring
+        yield start, sequence[start:end]
+
+
+def get_GC_by_slide_window(sequence, function, window, step, as_percent=False):
+    """
+    Calculate the statiistics as GC (G+C) content/ bases counts or any other statistic
+    along a sequence. Returns a dictionary-like
+    object mapping the sequence window to the statistic value (floats).
+    Returns 0 for windows without any G/C by handling zero division errors, and
+    does NOT look at any ambiguous nucleotides.
+
+    Inputs:
+        sequence - a string representing a sequence (DNA/RNA/Protein)
+        window_size - a integer representing the length of sequence to be analyzed
+                   at each step in the full sequence.
+        step - a integer representing the length of oerlapping sequence allowed.
+
+    Outputs:
+        gc- a dictionary-like object mapping the window size sequence to it gc values
+            as floating numbers
+    """
+    data = defaultdict(float)
+    for start, seq in get_sequence_chunks(sequence, window, step):
+        if as_percent:
+            data[start] += function(seq) * 100
+        data[start] += function(seq)
+    return data
+
+
+def difference_gc(mean_gc, gc_dict):
+    """
+    Calculates the difference between the mean GC content of window i, and the
+    mean chromosomal GC content, as Di = GCi − GC
+    """
+    # iterate through all keys, gc calculated values for the
+    # genome chunk
+    # get the difference between the chromosomal mean and the chunks
+    # add the difference to the appropriate chunk
+    d_i = {
+        chunk: gc_cnt - mean_gc
+        for chunk, gc_cnt in gc_dict.items()
+    }
+    return d_i
+
+
+def get_chromosomal_gc_variation(difference_dic):
+    """
+    Calculates the chromosomal GC variation defined as the log-transformed average
+    of the absolute value of the difference between the mean GC content of each
+    non-overlapping sliding window i and mean chromosomal GC content.
+    chromosomal_gc_variantion = log(1/N*sum(|Di|), where N is the maximum number of
+    non-overlapping window size in bp in a sliding windows.
+    """
+    # get the number of chunks
+    n = len(difference_dic)
+    # Create a new 1-dimensional array from an iterable object
+    arr = np.fromiter(
+        difference_dic.values(),
+        dtype=np.float32,
+        count=len(difference_dic),
+    )
+    var = np.log(np.sum(np.abs(arr)) / n)
+    return var
+
+
+def get_id_from_cds(string, pattern):
+    pattern = re.compile(pattern)
+    match = re.search(pattern, string)
+    return match.group(1)
+    
+
+
+def nested_dict_to_fasta(nested_dict, path_to_save):
+    for geno_id, seq_data in nested_dict.items():
+        write_fasta_file(seq_data, 
+                         out_file=f"{path_to_save}/{geno_id}.fna", 
+                         wrap=80)
+
+
+def clean_seq_name(name, extension):
+    if name.endswith("_chr.{extension}"):
+        end = f"_chr.{extension}"
+        return name.strip(end)
+    return name.strip(f".{extension}")
+

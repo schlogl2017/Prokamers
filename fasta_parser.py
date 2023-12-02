@@ -128,7 +128,7 @@ def split_sequences_from_fasta_file(filename):
     return plas, chro
 
 
-def write_fasta(sequence, name, out_file, wrap=80):
+def write_fasta(seq, name, out_file, wrap=80):
     """Write sequences to a fasta file.
 
     Parameters

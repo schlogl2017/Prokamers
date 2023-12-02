@@ -57,6 +57,7 @@ def main():
     dir_out = opt.dir_out
     extension = opt.extension
     filenames = filenames = glob.glob(f'{dir_name}/*.{extension}')
+    print(filenames)
     
     if os.path.exists(dir_out):
         pass
@@ -75,7 +76,7 @@ def main():
         print(colored(f"Number of chromosomes: {le_ch}", attrs=['bold']))
         if le_pl != 0:
             plasm_names = plasmids.keys()
-            full_path_plasmids = os.path.join(dir_out, genome_id, outfile[0])
+            full_path_plasmids = os.path.join(dir_out, outfile[0])
             # checking if there are a path to save the data
             if not os.path.exists(full_path_plasmids):
                 os.makedirs(full_path_plasmids)
@@ -86,7 +87,7 @@ def main():
             pass
         if le_ch != 0:
             chromosome_names = chromosome.keys()
-            full_path_chromosome = os.path.join(dir_out, genome_id, outfile[1])
+            full_path_chromosome = os.path.join(dir_out, outfile[1])
             # checking if there are a path to save the data
             if not os.path.exists(full_path_chromosome):
                 os.makedirs(full_path_chromosome)

@@ -1,0 +1,189 @@
+# get sequence length from multifastas
+seqkit fx2tab --length --name --header-line  foo.fasta
+bioawk -c fastx '{ print $name, length($seq) }' < sequences.fa
+
+# count aac and consecutive repeated aac in fasta files
+grep -v '^>' test.fasta | tr -d '\n' | sed -e 's/\(.\)/\1\n/g' | sort | uniq -c | sort -rn
+
+function dump(arr,n)
+    {
+    for(i in arr)
+        {
+        printf("%s %d %f\n",i,arr[i],arr[i]/n);
+        }
+    }
+BEGIN   {}
+/^>/ {dump(array,N);print;delete array;N=0.0;next;}
+    {
+    for(i=1;i<=length($0);i++) { array[substr($0,i,1)]++;N++;}
+    }
+END {
+    dump(array,N);
+    }
+USAGE:
+$ wget -O - -q "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=CAA68495.1,CAA64262.1,CAA46742.1&rettype=fasta"   |\
+awk -f script.awk
+
+cat input.fasta #my input file
+>gi|7290019|gb|AAF45486.1| (AE003417) EG:BACR37P7.1 gene product [Drosophila melanogaster]
+    MRMRGRRLLPIIL
+
+cat input.fasta | grep -v ">" | fold -w1 | sort | uniq -c
+
+Output:
+
+   1 G
+   2 I
+   3 L
+   2 M
+   1 P
+   4 R
+
+fold -w1 splits at every character, you sort them and count the unique ones
+
+
+from Bio.SeqUtils.ProtParam import ProteinAnalysis 
+from Bio.SeqIO import FastaIO
+
+with open('myfile.fasta') as fd:
+  for name, sequence in FastaIO.SimpleFastaParser(fd):
+     X = ProteinAnalysis(sequence)
+     print(name, X.count_amino_acids()['A']) 
+     
+     
+     
+     
+
+from itertools import groupby
+
+fh = open('file.fasta')
+
+groups = (x[1] for x in groupby(fh, lambda l: l[0] == ">"))
+for g in groups:
+    header = next(g).strip()
+    seq = ''.join(s.strip() for s in next(groups))
+    counts = {}
+    for s in [''.join(g) for k, g in groupby(seq)]:
+        if s not in counts: counts[s] = 0
+        counts[s]+=1
+    print header
+    print counts
+
+inFile = open('filePath','r')
+
+def getCounts(seq):
+    current = seq[0]
+    counts = {}
+    for i in range(1,len(seq), 1):
+        if seq[i] != current[-1]:
+            if not counts.has_key(current):
+                counts[current] = 0
+            counts[current] += 1
+            current = seq[i]
+        else:
+            current += seq[i]
+    return counts
+
+header = ''
+seq = ''
+for line in inFile:
+    if line[0] == ">":
+        if header != '':
+            print header + "\t" + str(getCounts(seq))
+        header = line.strip()[1:]
+        seq = ''
+    else:
+        seq += line.strip()
+print header + "\t" + str(getCounts(seq))
+
+
+
+
+from Bio import AlignIO
+from collections import Counter
+import sys
+
+aln = AlignIO.read(sys.argv[1], 'phylip')
+
+for i in range(aln.get_alignment_length()):
+    print(Counter(aln[:, i]))
+
+
+    16    149
+PAU_02775  MSTTPEQIAV EYPIPTYRFV VSLGDEQIPF NSVSGLDISH DVIEYKDGTG
+PLT_01696  MSTTPEQIAV EYPIPTYRFV VSIGDEQIPF NSVSGLDISH DVIEYKDGTG
+PAK_02606  MSTTPEQIAV EYPIPTYRFV VSIGDEQVPF NSVSGLDISH DVIEYKDGTG
+PLT_01736  MSTTPEQIAV EYPIPTYRFV VSIGDEKVPF NSVSGLDISH DVIEYKDGTG
+PAK_01896  MTTTT----V DYPIPAYRFV VSVGDEQIPF NNVSGLDITY DVIEYKDGTG
+PAU_02074  MATTT----V DYPIPAYRFV VSVGDEQIPF NSVSGLDITY DVIEYKDGTG
+PLT_02424  MSVTTEQIAV DYPIPTYRFV VSVGDEQIPF NNVSGLDITY DVIEYKDGTG
+PLT_01716  MTITPEQIAV DYPIPAYRFV VSVGDEKIPF NNVSGLDVHY DVIEYKDGTG
+PLT_01758  MAITPEQIAV EYPIPTYRFV VSVGDEQIPF NNVSGLDVHY DVIEYKDGIG
+PAK_03203  MSTSTSQIAV EYPIPVYRFI VSIGDDQIPF NSVSGLDINY DTIEYRDGVG
+PAU_03392  MSTSTSQIAV EYPIPVYRFI VSVGDEKIPF NSVSGLDISY DTIEYRDGVG
+PAK_02014  MSITQEQIAA EYPIPSYRFM VSIGDVQVPF NSVSGLDRKY EVIEYKDGIG
+PAU_02206  MSITQEQIAA EYPIPSYRFM VSIGDVQVPF NSVSGLDRKY EVIEYKDGIG
+PAK_01787  MSTTADQIAV QYPIPTYRFV VTIGDEQMCF QSVSGLDISY DTIEYRDGVG
+PAU_01961  MSTTADQIAV QYPIPTYRFV VTIGDEQMCF QSVSGLDISY DTIEYRDGVG
+PLT_02568  MSTTVDQIAV QYPIPTYRFV VTVGDEQMSF QSVSGLDISY DTIEYRDGIG
+
+           NYYKMPGQRQ AINISLRKGV FSGDTKLFDW INSIQLNQVE KKDISISLTN
+           NYYKMPGQRQ AINISLRKGV FSGDTKLFDW INSIQLNQVE KKDISISLTN
+           NYYKMPGQRQ AINISLRKGV FSGDTKLFDW INSIQLNQVE KKDISISLTN
+           NYYKMPGQRQ AINITLRKGV FSGDTKLFDW LNSIQLNQVE KKDISISLTN
+           NYYKMPGQRQ LINITLRKGV FPGDTKLFDW LNSIQLNQVE KKDVSISLTN
+           NYYKMPGQRQ LINITLRKGV FPGDTKLFDW LNSIQLNQVE KKDVSISLTN
+           NHYKMPGQRQ LINITLRKGV FPGDTKLFDW LNSIQLNQVE KKDVSISLTN
+           NYYKMPGQRQ SINITLRKGV FPGDTKLFDW INSIQLNQVE KKDIAISLTN
+           NYYKMPGQRQ SINITLRKGV FPGDTKLFDW INSIQLNQVE KKDIAISLTN
+           NWFKMPGQSQ LVNITLRKGV FPGKTELFDW INSIQLNQVE KKDITISLTN
+           NWFKMPGQSQ STNITLRKGV FPGKTELFDW INSIQLNQVE KKDITISLTN
+           NYYKMPGQIQ RVDITLRKGI FSGKNDLFNW INSIELNRVE KKDITISLTN
+           NYYKMPGQIQ RVDITLRKGI FSGKNDLFNW INSIELNRVE KKDITISLTN
+           NWLQMPGQRQ RPTITLKRGI FKGQSKLYDW INSISLNQIE KKDISISLTD
+           NWLQMPGQRQ RPTITLKRGI FKGQSKLYDW INSISLNQIE KKDISISLTD
+           NWLQMPGQRQ RPSITLKRGI FKGQSKLYDW INSISLNQIE KKDISISLTD
+
+           EAGTEILMTW SVANAFPTSL TSPSFDATSN EVAVQEITLT ADRVTIQAA
+           EAGTEILMTW SVANAFPTSL ISPSFDATSN EVAVQEITLT ADRVTIQAA
+           EAGTEILMTW SVANAFPTSL TSPSFDATSN EVAVQEITLT ADRVTIQAA
+           EAGTEILMTW SVANAFPTSL TAPAFDATSN EVAVQEISLT ADRVTIQAA
+           ETGTEILMSW SVANAFPTSL TSPSFDATSN DIAVQEIKLT ADRVTIQAA
+           EVGTEILMTW SVANAFPTSL TSPSFDATSN DIAVQEIKLT ADRVTIQAA
+           EAGTEILMSW SVANAFPTSL TSPSFDATSN DIAVQEIKLT ADRVMIQAA
+           ETGSQILMTW NVANAFPTSF TSPSFDAASN DIAIQEIALV ADRVTIQAP
+           EAGTEILMTW NVANAFPTSF TSPSFDATSN EIAVQEIALT ADRVTIQAA
+           DAGTELLMTW NVSNAFPTSL TSPSFDATSN DIAVQEITLT ADRVIMQAV
+           DAGTELLMTW NVSNAFPTSL TSPSFDATSN DIAVQEITLM ADRVIMQAV
+           DTGSEVLMSW VVSNAFPSSL TAPSFDASSN EIAVQEISLV ADRVTIQVP
+           DTGSKVLMSW VVSNAFPSSL TAPSFDASSN EIAVQEISLV ADRVTIQVP
+           ETGSNLLITW NIANAFPEKL TAPSFDATSN EVAVQEMSLK ADRVTVEFH
+           ETGSNLLITW NIANAFPEKL TAPSFDATSN EVAVQEISLK ADRVTVEFH
+           ETGSNLLITW NIANAFPEKL TAPSFDATSN EVAVQEISLK ADRVTVEFH
+
+The result would be:
+
+$ python script.py inputseqs.phy
+Counter({'M': 16})
+Counter({'S': 12, 'A': 2, 'T': 2})
+ ... # Truncated output to stay in post character limit.
+Counter({'V': 16})
+Counter({'T': 13, 'I': 2, 'M': 1})
+Counter({'I': 11, 'V': 3, 'M': 2})
+Counter({'Q': 13, 'E': 3})
+Counter({'A': 11, 'F': 3, 'V': 2})
+Counter({'A': 8, 'P': 3, 'H': 3, 'V': 2})
+
+
+
+
+
+
+
+
+
+
+
+
+
+

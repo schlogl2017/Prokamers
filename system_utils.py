@@ -105,12 +105,14 @@ def get_full_name(dir_out, sud_dir, ssub):
     return os.path.join(dir_out, sud_dir, ssub)
 
 
-def get_fasta_files(dir_name, extension):
+def get_fasta_files(dir_name):
     infiles = []
     for path, subdirs, files in os.walk(dir_name):
         for name in files:
             input_files = os.path.join(path, name)
-            if input_files.endswith(extension):
+            if input_files.endswith('fa.gz') or input_files.endswith('.fa') \
+                    or input_files.endswith('.fasta') or input_files.endswith('.fa.gz') \
+                    or input_files.endswith('.fna') or input_files.endswith('.fna.gz'):
                 infiles.append(input_files)
     return infiles
 
