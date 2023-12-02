@@ -1,0 +1,4 @@
+python merge_tsv_data.py -di Jelly_counts/Bacteria/Terrabacteria_group/Bacillota -s CHR -e dump
+
+for i in {4..8}; do python expected_kmer_by_hom.py -di Jelly_counts/Archaea/Unclas_Archaeon/Unclas_Archaeon -sd CHR -p fwr -do HMO_exp -k $i -e csv; done
+

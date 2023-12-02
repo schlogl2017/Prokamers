@@ -1,0 +1,10 @@
+from itertools import groupby, imap
+
+tot = 0
+num = 0
+with open(filename) as handle:
+    for header, group in groupby(handle, lambda x:x.startswith('>')):
+        if not header:
+            num += 1
+            tot += sum(imap(lambda x: len(x.strip()), group))
+result = float(tot)/num

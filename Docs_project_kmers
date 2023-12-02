@@ -1,0 +1,7 @@
+awk -F"," 'BEGIN { OFS="\t" } {print $1, $8, $9, $17, $18}' Bacillota.csv > resume
+awk -F"," '{print $1}' Bacillota.csv | uniq > names
+awk -F" " '{print $1}' names | uniq > uniq_names
+
+awk -F"," 'BEGIN { print "OrgName", "Assembly", "Size(Mb)", "CG(%)", "CDS", "Genes", "PsGen", "RefSeqCat" } ; NR > 1 { print $1, $6, $8, $9, $12, $16, $17, $18 } ' *.csv
+
+

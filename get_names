@@ -1,0 +1,4 @@
+find Genomes_new/Bacteria/Unclas_bacterium/Unclas_bacterium/CHR -type f -name *_chr.fna | grep -oP "[^/]*$" | sed 's/_chr.fna//' > Genomes_new/Bacteria/Unclas_bacterium/Unclas_bacterium/CHR/Unclas_bacterium.ids
+
+find Genomes_new/Bacteria/Unclas_bacterium/Unclas_bacterium/PLAS -type f -name *_plas.fna | grep -oP "[^/]*$" | sed 's/_plas.fna//' > Genomes_new/Bacteria/Unclas_bacterium/Unclas_bacterium/PLAS/Unclas_bacterium.ids
+

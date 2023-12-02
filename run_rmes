@@ -1,0 +1,13 @@
+gzip -d RMES_Genomes/*.gz
+
+#bash rmes_pois_gauss.sh Archaea Other 4
+#bash rmes_skew.sh Archaea Other 4
+
+#bash rmes_format.sh Bacteria Proteobacteria
+
+for i in 3 4 5 6 7 8 9 10 11
+do
+  echo " Analysing kmer of length $i"
+  bash rmes_pois_gauss.sh Bacteria Proteobacteria "$i"
+done
+

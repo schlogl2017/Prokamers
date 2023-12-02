@@ -1,0 +1,4 @@
+for name in $(ls Genomes/Bacteria/Acidobacteria); 
+do 
+    bash gc_percent_bioawk.sh Bacteria Acidobacteria "${name}"; 
+done

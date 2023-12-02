@@ -1,0 +1,9 @@
+base                  *  /home/paulosschlogl/anaconda3
+Bioinfo                  /home/paulosschlogl/anaconda3/envs/Bioinfo
+MEME                     /home/paulosschlogl/anaconda3/envs/MEME
+PFAM                     /home/paulosschlogl/anaconda3/envs/PFAM
+Python                   /home/paulosschlogl/anaconda3/envs/Python
+chromeister              /home/paulosschlogl/anaconda3/envs/chromeister
+islandpath               /home/paulosschlogl/anaconda3/envs/islandpath
+pythonProject            /home/paulosschlogl/anaconda3/envs/pythonProject
+

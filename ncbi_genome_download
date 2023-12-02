@@ -1,0 +1,1 @@
+ncbi-genome-download --dry-run bacteria -F fasta --parallel 4

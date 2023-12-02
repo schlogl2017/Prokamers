@@ -1,0 +1,9 @@
+pandas~=1.1.5
+toolz~=0.11.1
+termcolor~=1.1.0
+scipy~=1.2.1
+dask~=2.25.0
+setuptools~=58.0.4
+cython~=0.29.24
+numpy~=1.17.0
+matplotlib~=3.3.4

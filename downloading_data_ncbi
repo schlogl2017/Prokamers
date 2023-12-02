@@ -1,0 +1,39 @@
+awk -F"," '$7 ~ /Contig|Scaffold/' Synergistia.csv | awk -F"," '{print $6}' > assm_other
+
+awk -F"," '$7 ~ /Complete|Chromosome/' Synergistia.csv | awk -F"," '{print $6}' > assm_cmpl
+
+cat assm_cmpl | while read -r acc ; do
+    esearch -db assembly -query "$acc" </dev/null \
+        | esummary \
+        | xtract -pattern DocumentSummary -element FtpPath_GenBank \
+        | while read -r url ; do
+            fname=$(echo "$url" | grep -o 'GCA_.*' | sed 's/$/_genomic.fna.gz/') ;
+            wget -nc "$url/$fname" ;
+        done ;
+    done
+    
+
+cat assm_cmpl | while read -r acc ; do
+    esearch -db assembly -query "$acc" </dev/null \
+        | esummary \
+        | xtract -pattern DocumentSummary -element FtpPath_GenBank \
+        | while read -r url ; do
+            fname=$(echo "$url" | grep -o 'GCA_.*' | sed 's/$/_cds_from_genomic.fna.gz/') ;
+            wget -nc "$url/$fname" ;
+        done ;
+    done
+
+
+cat assm_cmpl | while read -r acc ; do
+    esearch -db assembly -query "$acc" </dev/null \
+        | esummary \
+        | xtract -pattern DocumentSummary -element FtpPath_GenBank \
+        | while read -r url ; do
+            fname=$(echo "$url" | grep -o 'GCA_.*' | sed 's/$/_genomic.gff.gz/') ;
+            wget -nc "$url/$fname" ;
+        done ;
+    done
+
+
+
+    

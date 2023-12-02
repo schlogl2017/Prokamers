@@ -1,0 +1,6 @@
+bash count_seq_cds.sh Bacteria Bacteria_incertae_sedis Bacteria_incertae_sedis > Results/Num_genes/Bacteria/Bacteria_incertae_sedis/Bacteria_incertae_sedis/Bacteria_incertae_sedis_num_genes.tsv
+
+
+
+
+for name in $(ls Genomes/Viruses/Unclassified_viruses); do bash count_seq_cds.sh Viruses Unclassified_viruses "${name}" > Results/Num_genes/Viruses/Unclassified_viruses/"${name}"/"${name}"_num_genes.tsv; done
